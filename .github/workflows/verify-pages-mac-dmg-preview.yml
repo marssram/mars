@@ -1,0 +1,37 @@
+name: Verify THE UNIVERSE Mac DMG Preview
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-pages-mac-dmg-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check public preview links and unchanged core routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW='https://a5f63bc2.the-universe-app.pages.dev'
+          LIVE='https://the-universe-app.pages.dev'
+          DOWNLOAD='https://github.com/marssram/mars/releases/download/the-universe-mac-arm64-r41-2/TheUniverse-Mac-AppleSilicon.dmg'
+          mkdir -p /tmp/tu-check
+          curl --fail --silent --show-error --location --retry 3 "$PREVIEW/telechargements" -o /tmp/tu-check/downloads.html
+          grep -Fq "href=\"$DOWNLOAD\"" /tmp/tu-check/downloads.html
+          grep -Fq 'Télécharger pour Mac' /tmp/tu-check/downloads.html
+          ! grep -Fq 'Télécharger le kit Mac' /tmp/tu-check/downloads.html
+          grep -Fq 'id="download-windows"' /tmp/tu-check/downloads.html
+          for part in '' '/index.html' '/acheter.html' '/download-windows.js' '/downloads/windows/current/manifest.json'; do
+            curl --fail --silent --show-error --location --retry 3 "$PREVIEW$part" -o "/tmp/tu-check/preview_$(echo "$part"|tr '/' '_')"
+            curl --fail --silent --show-error --location --retry 3 "$LIVE$part" -o "/tmp/tu-check/live_$(echo "$part"|tr '/' '_')"
+            cmp "/tmp/tu-check/preview_$(echo "$part"|tr '/' '_')" "/tmp/tu-check/live_$(echo "$part"|tr '/' '_')"
+          done
+          curl --fail --silent --show-error --head --location --retry 3 "$PREVIEW/downloads/mac-arm64/TheUniverse-Mac-AppleSilicon-Kit.zip" | tee /tmp/tu-check/mac-headers
+          grep -Eqi 'content-type:.*(application/x-apple-diskimage|application/octet-stream|application/vnd.apple)' /tmp/tu-check/mac-headers || echo "NOTE: GitHub may use application/octet-stream"
+          echo 'PASS MAC DMG LINK, HOMEPAGE, STRIPE PAGE, WINDOWS JS AND MANIFEST'

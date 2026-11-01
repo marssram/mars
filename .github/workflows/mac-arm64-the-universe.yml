@@ -1,0 +1,87 @@
+name: THE UNIVERSE macOS installer
+
+on:
+  push:
+    paths:
+      - '.github/workflows/mac-arm64-the-universe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac-arm:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Download R41.2 payload and check SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 -o /tmp/kit.zip 'https://the-universe-app.pages.dev/downloads/mac-arm64/TheUniverse-Mac-AppleSilicon-Kit.zip'
+          echo '5a49848abe03a68731a9fe1a30d30de9b88708737854c83b6df4dcf48f7dca30  /tmp/kit.zip' | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/kit"
+          ditto -x -k /tmp/kit.zip "$RUNNER_TEMP/kit"
+          test -f "$RUNNER_TEMP/kit/THE_UNIVERSE_R41_2_MAC_ARM64_TEST_KIT/PAYLOAD_THE_UNIVERSE/desktop-main.js"
+      - name: Download verified Electron macOS ARM runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          F=electron-v31.7.7-darwin-arm64.zip
+          ROOT=https://github.com/electron/electron/releases/download/v31.7.7
+          curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 -o "$RUNNER_TEMP/$F" "$ROOT/$F"
+          curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 -o "$RUNNER_TEMP/SHASUMS256.txt" "$ROOT/SHASUMS256.txt"
+          (cd "$RUNNER_TEMP" && grep " $F\$" SHASUMS256.txt | shasum -a 256 -c -)
+          mkdir -p "$RUNNER_TEMP/electron"
+          ditto -x -k "$RUNNER_TEMP/$F" "$RUNNER_TEMP/electron"
+          test -d "$RUNNER_TEMP/electron/Electron.app"
+      - name: Assemble ad-hoc signed application and drag-to-Applications DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST="$RUNNER_TEMP/dist"
+          STAGE="$RUNNER_TEMP/dmg-stage"
+          APP="$DIST/The Universe.app"
+          PAYLOAD="$RUNNER_TEMP/kit/THE_UNIVERSE_R41_2_MAC_ARM64_TEST_KIT/PAYLOAD_THE_UNIVERSE"
+          mkdir -p "$DIST" "$STAGE"
+          cp -R "$RUNNER_TEMP/electron/Electron.app" "$APP"
+          rm -rf "$APP/Contents/Resources/app" "$APP/Contents/_CodeSignature"
+          mkdir -p "$APP/Contents/Resources/app"
+          ditto "$PAYLOAD" "$APP/Contents/Resources/app"
+          test -f "$APP/Contents/Resources/app/runtime/master-qlist-workspace-v232r655.js"
+          test -f "$APP/Contents/Resources/app/runtime/universal-ui-v232r651.js"
+          mv "$APP/Contents/MacOS/Electron" "$APP/Contents/MacOS/The Universe"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable The Universe' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleName The Universe' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName The Universe' "$APP/Contents/Info.plist" || /usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string The Universe' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.mars.theuniverse' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 2.3.2' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 23241200' "$APP/Contents/Info.plist"
+          chmod +x "$APP/Contents/MacOS/The Universe"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          file "$APP/Contents/MacOS/The Universe" | tee "$DIST/ARCHITECTURE.txt"
+          grep -q arm64 "$DIST/ARCHITECTURE.txt"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$DIST/TheUniverse-Mac-AppleSilicon.zip"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname 'The Universe' -srcfolder "$STAGE" -format UDZO -ov "$DIST/TheUniverse-Mac-AppleSilicon.dmg"
+          (cd "$DIST" && shasum -a 256 *.dmg *.zip > SHA256.txt)
+      - name: Verify DMG and publish direct installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DIST="$RUNNER_TEMP/dist"
+          hdiutil verify "$DIST/TheUniverse-Mac-AppleSilicon.dmg"
+          unzip -t "$DIST/TheUniverse-Mac-AppleSilicon.zip" > /dev/null
+          codesign --verify --deep --strict "$DIST/The Universe.app"
+          if find "$DIST/The Universe.app" -type f \( -name '*.p12' -o -name '*.pfx' -o -name '*.key' \) | grep -q .; then
+            echo "Private keys found" >&2
+            exit 1
+          fi
+          TAG=the-universe-mac-arm64-r41-2
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title 'THE UNIVERSE - Mac Apple Silicon' --prerelease --notes 'Mac ARM64 application in DMG. Drag the app to Applications. Ad-hoc signed, not Apple notarized. First launch may require Open Anyway in macOS Security settings. Native features remain to be tested on Mac.'
+          gh release upload "$TAG" "$DIST/TheUniverse-Mac-AppleSilicon.dmg" "$DIST/TheUniverse-Mac-AppleSilicon.zip" "$DIST/SHA256.txt" -R "$GITHUB_REPOSITORY" --clobber
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/TheUniverse-Mac-AppleSilicon.dmg" >> "$GITHUB_STEP_SUMMARY"

@@ -18,8 +18,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PREVIEW='https://648ac21e.the-universe-app.pages.dev'
-          LIVE='https://the-universe-app.pages.dev'
+          PREVIEW='https://the-universe-app.pages.dev'
+          LIVE='https://70aa146d.the-universe-app.pages.dev'
           DOWNLOAD='https://github.com/marssram/mars/releases/download/the-universe-mac-arm64-r41-2/TheUniverse-Mac-AppleSilicon.dmg'
           mkdir -p /tmp/tu-check
           curl --fail --silent --show-error --location --retry 3 "$PREVIEW/telechargements" -o /tmp/tu-check/downloads.html

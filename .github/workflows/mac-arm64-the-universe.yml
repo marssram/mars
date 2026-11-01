@@ -31,7 +31,7 @@ jobs:
           ROOT=https://github.com/electron/electron/releases/download/v31.7.7
           curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 -o "$RUNNER_TEMP/$F" "$ROOT/$F"
           curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 -o "$RUNNER_TEMP/SHASUMS256.txt" "$ROOT/SHASUMS256.txt"
-          (cd "$RUNNER_TEMP" && grep " $F\$" SHASUMS256.txt | shasum -a 256 -c -)
+          (cd "$RUNNER_TEMP" && awk -v f="$F" '$2 == "*"f || $2 == f {print $1 "  " f}' SHASUMS256.txt | shasum -a 256 -c -)
           mkdir -p "$RUNNER_TEMP/electron"
           ditto -x -k "$RUNNER_TEMP/$F" "$RUNNER_TEMP/electron"
           test -d "$RUNNER_TEMP/electron/Electron.app"
